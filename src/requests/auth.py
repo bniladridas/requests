@@ -139,6 +139,12 @@ class HTTPDigestAuth(AuthBase):
     def __init__(self, username: bytes, password: bytes) -> None: ...
 
     def __init__(self, username: bytes | str, password: bytes | str) -> None:
+        # Normalize bytes credentials to str using UTF-8 decoding so that
+        # non-latin credentials are handled consistently.
+        if isinstance(username, bytes):
+            username = username.decode("utf-8")
+        if isinstance(password, bytes):
+            password = password.decode("utf-8")
         self.username = username
         self.password = password
         # Keep state in per-thread local storage
@@ -308,7 +314,14 @@ class HTTPDigestAuth(AuthBase):
                 cast(str, prep.method), cast(str, prep.url)
             )
             if _digest_auth:
-                prep.headers["Authorization"] = _digest_auth
+                # Encode as bytes if the header contains non-latin-1
+                # characters (e.g. non-latin credentials) to avoid
+                # UnicodeEncodeError when urllib3 encodes the header.
+                try:
+                    _digest_auth.encode("latin-1")
+                    prep.headers["Authorization"] = _digest_auth
+                except UnicodeEncodeError:
+                    prep.headers["Authorization"] = _digest_auth.encode("utf-8")
             _r = r.connection.send(prep, **kwargs)
             _r.history.append(r)
             _r.request = prep
